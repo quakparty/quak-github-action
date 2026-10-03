@@ -1,4 +1,4 @@
-name: Quak
+name: Quak for Sonos
 description: Announce deployments, failed builds and releases on Sonos speakers with text-to-speech, sounds and clips.
 author: Quak
 branding:
