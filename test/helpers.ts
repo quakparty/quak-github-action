@@ -46,7 +46,7 @@ export type ActionResult = {
 
 /**
  * Runs the action with these inputs (names as in action.yml) and a fetch that records every request and answers with
- * `respond` (default: a play, 248 credits left). Never a real request.
+ * `respond` (default: a play, the header says 248 credits left). Never a real request.
  */
 export async function runAction(
   inputs: Record<string, string>,

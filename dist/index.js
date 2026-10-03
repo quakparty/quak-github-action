@@ -944,7 +944,7 @@ function parseVolumes(value) {
 // package.json
 var package_default = {
   name: "quak-github-action",
-  version: "1.0.0",
+  version: "1.0.1",
   private: true,
   description: "GitHub Action for the Quak API: announcements, sounds and clips on Sonos speakers from a workflow",
   license: "MIT",
@@ -1111,7 +1111,10 @@ function report(play, inputs, fileName, left, runner) {
   const speakers = players.map((player) => player.name || player.slug).filter(Boolean);
   const on = speakers.length > 0 ? ` on ${list(speakers)}` : "";
   const to = speakers.length > 0 ? ` to ${list(speakers)}` : "";
-  const cost = describeCredits(play.credits, left);
+  const cost = describeCredits(play.credits);
+  if (left !== null) {
+    runner.debug(`credits left: ${left}`);
+  }
   if (play.status === "SKIPPED") {
     const why = play.skipReason === "QUIET_HOURS" ? "it is quiet hours" : play.skipReason === "BUSY" ? "every speaker is busy with a play of higher priority" : "Quak skipped it";
     runner.notice(`Nothing played: ${why}. The ${inputs.kind} was not announced${on}.`);
@@ -1153,25 +1156,17 @@ function describeContent(inputs, fileName) {
       return "audio from a URL";
   }
 }
-function describeCredits(used, left) {
-  const parts = [];
-  if (typeof used === "number") {
-    parts.push(`${used} ${used === 1 ? "credit" : "credits"}`);
-  }
-  if (left !== null) {
-    parts.push(`${left} left`);
-  }
-  return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+function describeCredits(used) {
+  return typeof used === "number" ? ` (${used} ${used === 1 ? "credit" : "credits"})` : "";
 }
 var HINTS = {
   ERROR_INVALID_API_KEY: "Check the secret QUAK_API_KEY: the key is unknown or was deleted.",
   ERROR_MISSING_API_KEY: "Check the secret QUAK_API_KEY.",
   ERROR_INSUFFICIENT_SCOPE: "The key needs the scope play.",
-  ERROR_INSUFFICIENT_CREDITS: "The workspace is out of credits.",
-  ERROR_NOT_ENOUGH_CREDITS: "The workspace is out of credits.",
   ERROR_SONOS_RECONNECT_REQUIRED: "Reconnect Sonos in Quak.",
   ERROR_TOO_MANY_REQUESTS: "Too many plays in a short time, try again later."
 };
+var CREDIT_ERRORS = ["ERROR_INSUFFICIENT_CREDITS", "ERROR_NOT_ENOUGH_CREDITS"];
 function describeError(error, timeoutMs = TIMEOUT_MS) {
   if (error instanceof UnexpectedAnswer) {
     return "Quak sent an answer the action does not understand. The play may have gone out anyway.";
@@ -1192,10 +1187,13 @@ function describeError(error, timeoutMs = TIMEOUT_MS) {
   if (error.status >= 300 && error.status < 400) {
     return `Quak answered with a redirect (HTTP ${error.status}), which the action does not follow.`;
   }
+  const request = error.requestId ? ` Request ID: ${error.requestId}.` : "";
+  if (error.status === 402 || CREDIT_ERRORS.includes(error.code)) {
+    return `The workspace is out of credits. [HTTP ${error.status}, ${error.code}]${request}`;
+  }
   const message = clean(error.message).replace(/\.$/, "");
   const field = error.field ? ` (input ${kebab(error.field)})` : "";
   const hint = HINTS[error.code] ?? (error.status >= 500 ? "Quak or Sonos has a problem right now." : "");
-  const request = error.requestId ? ` Request ID: ${error.requestId}.` : "";
   return `${message}${field}.${hint ? ` ${hint}` : ""} [HTTP ${error.status}, ${error.code}]${request}`;
 }
 function clean(message) {

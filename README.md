@@ -132,7 +132,7 @@ steps:
 One line per play, and annotations only when there is something to look at:
 
 ```
-Quak: sound "alarm" sent to Office and Kitchen (1 credit, 248 left).
+Quak: sound "alarm" sent to Office and Kitchen (1 credit).
 ```
 
 - **Skipped** (quiet hours, or every speaker busy with a play of higher priority): a notice, the step passes.
@@ -142,10 +142,10 @@ Quak: sound "alarm" sent to Office and Kitchen (1 credit, 248 left).
   `Invalid API key. Check the secret QUAK_API_KEY: the key is unknown or was deleted. [HTTP 401, ERROR_INVALID_API_KEY] Request ID: …`.
 - **Invalid inputs** are reported before any request, all problems at once.
 
-The key is masked. Texts and URLs are never logged: a text shows as `text (34 characters)`. The play ID is in the
-output `play-id` and, with
+The key is masked, texts and URLs are never logged: a text shows as `text (34 characters)`. The workspace's credit
+balance and the play ID only show with
 [debug logging](https://docs.github.com/actions/monitoring-and-troubleshooting-workflows/troubleshooting-workflows/enabling-debug-logging),
-in the log.
+which needs write access to the repository; the play ID is also in the output `play-id`.
 
 ## Failures, forks and skipped plays
 

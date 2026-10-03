@@ -1,6 +1,6 @@
 {
   "name": "quak-github-action",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "GitHub Action for the Quak API: announcements, sounds and clips on Sonos speakers from a workflow",
   "license": "MIT",

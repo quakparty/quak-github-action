@@ -22,9 +22,10 @@ Everything in this repository is in English: code, comments, error messages, REA
   on the repository, no `permissions`. Every failure is one clear error annotation and the step stays green, unless
   `fail-on-error` is `true`. Pull requests from forks and Dependabot runs get no secrets: an empty key there is a
   warning, also with `fail-on-error`.
-- **The log:** one info line per play (what, where, credits used and left), annotations only when there is something
-  to look at (skipped: notice; ignored processing inputs, failed speakers: warning; failures: error). Never the text or
-  the URL; the key is masked first. Errors carry message, input, hint, HTTP status, code and request ID on one line.
+- **The log:** one info line per play (what, where, credits used), annotations only when there is something to look
+  at (skipped: notice; ignored processing inputs, failed speakers: warning; failures: error). Never the text, the URL
+  or the credit balance (logs of public repositories are public, the balance goes to the debug log); the key is masked
+  first. Errors carry message, input, hint, HTTP status, code and request ID on one line.
 - **Validation:** everything the API's limits fix (numbers, booleans, `volumes`, intensities, text length, file size,
   `process: false` for text and file) is checked before the request, all problems at once. `effect` and `ambience`
   are beta, their values stay the API's to check.

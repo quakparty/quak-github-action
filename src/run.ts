@@ -212,7 +212,11 @@ function report(play: Play, inputs: Inputs, fileName: string | undefined, left: 
   const speakers = players.map((player) => player.name || player.slug).filter(Boolean);
   const on = speakers.length > 0 ? ` on ${list(speakers)}` : "";
   const to = speakers.length > 0 ? ` to ${list(speakers)}` : "";
-  const cost = describeCredits(play.credits, left);
+  const cost = describeCredits(play.credits);
+  // The balance stays out of the log: logs of public repositories are public. Debug logging needs write access.
+  if (left !== null) {
+    runner.debug(`credits left: ${left}`);
+  }
 
   if (play.status === "SKIPPED") {
     const why =
@@ -272,15 +276,8 @@ function describeContent(inputs: Inputs, fileName: string | undefined): string {
   }
 }
 
-function describeCredits(used: unknown, left: number | null): string {
-  const parts: string[] = [];
-  if (typeof used === "number") {
-    parts.push(`${used} ${used === 1 ? "credit" : "credits"}`);
-  }
-  if (left !== null) {
-    parts.push(`${left} left`);
-  }
-  return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+function describeCredits(used: unknown): string {
+  return typeof used === "number" ? ` (${used} ${used === 1 ? "credit" : "credits"})` : "";
 }
 
 // --- Errors ------------------------------------------------------------------------------------------------------
@@ -290,11 +287,11 @@ const HINTS: Record<string, string> = {
   ERROR_INVALID_API_KEY: "Check the secret QUAK_API_KEY: the key is unknown or was deleted.",
   ERROR_MISSING_API_KEY: "Check the secret QUAK_API_KEY.",
   ERROR_INSUFFICIENT_SCOPE: "The key needs the scope play.",
-  ERROR_INSUFFICIENT_CREDITS: "The workspace is out of credits.",
-  ERROR_NOT_ENOUGH_CREDITS: "The workspace is out of credits.",
   ERROR_SONOS_RECONNECT_REQUIRED: "Reconnect Sonos in Quak.",
   ERROR_TOO_MANY_REQUESTS: "Too many plays in a short time, try again later.",
 };
+
+const CREDIT_ERRORS = ["ERROR_INSUFFICIENT_CREDITS", "ERROR_NOT_ENOUGH_CREDITS"];
 
 export function describeError(error: unknown, timeoutMs = TIMEOUT_MS): string {
   if (error instanceof UnexpectedAnswer) {
@@ -319,10 +316,14 @@ export function describeError(error: unknown, timeoutMs = TIMEOUT_MS): string {
   if (error.status >= 300 && error.status < 400) {
     return `Quak answered with a redirect (HTTP ${error.status}), which the action does not follow.`;
   }
+  const request = error.requestId ? ` Request ID: ${error.requestId}.` : "";
+  if (error.status === 402 || CREDIT_ERRORS.includes(error.code)) {
+    // Not the API's message: it can name the balance, and logs of public repositories are public.
+    return `The workspace is out of credits. [HTTP ${error.status}, ${error.code}]${request}`;
+  }
   const message = clean(error.message).replace(/\.$/, "");
   const field = error.field ? ` (input ${kebab(error.field)})` : "";
   const hint = HINTS[error.code] ?? (error.status >= 500 ? "Quak or Sonos has a problem right now." : "");
-  const request = error.requestId ? ` Request ID: ${error.requestId}.` : "";
   return `${message}${field}.${hint ? ` ${hint}` : ""} [HTTP ${error.status}, ${error.code}]${request}`;
 }
 

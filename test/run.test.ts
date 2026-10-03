@@ -134,7 +134,7 @@ describe("answers", () => {
       ),
     );
     expect(code).toBe(0);
-    expect(lines).toContain('Quak: sound "alarm" sent to Office and Kitchen (1 credit, 248 left).');
+    expect(lines).toContain('Quak: sound "alarm" sent to Office and Kitchen (1 credit).');
     expect(outputs).toEqual({
       "play-id": "0b7a1f7e-4a53-4e0c-9f38-1d0f2a8b9c10",
       status: "PENDING",
@@ -147,7 +147,7 @@ describe("answers", () => {
 
   test("the log never shows the text or the URL", async () => {
     const text = await runAction({ ...base, type: "text", text: "Secret project Falcon is live." });
-    expect(text.log).toContain("Quak: text (30 characters) sent to Office (1 credit, 248 left).");
+    expect(text.log).toContain("Quak: text (30 characters) sent to Office (1 credit).");
     expect(text.log).not.toContain("Falcon");
 
     const url = await runAction({ ...base, type: "url", url: "https://example.com/private/a.mp3?token=abc" });
@@ -244,7 +244,6 @@ describe("errors", () => {
 
   test.each([
     [401, "ERROR_INVALID_API_KEY", "invalid API key", "Check the secret QUAK_API_KEY"],
-    [402, "ERROR_NOT_ENOUGH_CREDITS", "not enough credits", "The workspace is out of credits."],
     [403, "ERROR_INSUFFICIENT_SCOPE", "the key lacks scope play", "The key needs the scope play."],
     [404, "ERROR_NOT_FOUND", "sound not found", ""],
     [409, "ERROR_CONFLICT", "conflict", ""],
@@ -261,6 +260,23 @@ describe("errors", () => {
     expect(line).toContain("Request ID: req_123.");
     expect(line).toContain(hint);
     expect(result.outputs).toEqual({});
+  });
+
+  test("out of credits: never the balance, also when the API's message names it", async () => {
+    const result = await runAction(
+      { ...base, type: "sound", sound: "alarm" },
+      apiError(402, "ERROR_NOT_ENOUGH_CREDITS", "needs 2 credits, 1 left", { details: { balance: 1 } }),
+    );
+    expect(result.code).toBe(1);
+    expect(result.log).toContain(
+      "::error title=Quak::The workspace is out of credits. [HTTP 402, ERROR_NOT_ENOUGH_CREDITS] Request ID: req_123.",
+    );
+    expect(result.log).not.toContain("1 left");
+  });
+
+  test("the balance is only in the debug log", async () => {
+    const { lines } = await runAction({ ...base, type: "sound", sound: "alarm" });
+    expect(lines.filter((line) => line.includes("248"))).toEqual(["::debug::credits left: 248"]);
   });
 
   test("a field in the error is named as the input", async () => {
