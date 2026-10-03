@@ -52,7 +52,7 @@ describe("type and content", () => {
   });
 
   test("text keeps line breaks, quotes and shell characters, only the ends are trimmed", () => {
-    const text = `Deploy of "main" done: $HOME \`whoami\` $(rm -rf /) ; | & 🚀\nÜmlaute ok`;
+    const text = `Deploy of "main" done: $HOME \`whoami\` $(rm -rf /) ; | & 🚀\nCrème brûlée in Zürich`;
     expect(parse({ type: "text", text: `${text}\n` }).content).toBe(text);
   });
 

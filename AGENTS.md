@@ -51,5 +51,9 @@ Everything in this repository is in English: code, comments, error messages, REA
 - **Dependencies:** always the newest **stable** version, pinned exactly, never beta, RC or canary (check
   `npm view <package> versions`, the `latest` tag can point to an RC). Agree on major updates first.
 - Tests never make real requests and never contain real keys.
+- **English only:** this repository is public, so README, docs, agent notes, comments and test data are English. No
+  German, also no planning notes to translate later.
+- **No planning files here:** open points and ideas go to the shared Quak backlog, which is kept outside this
+  repository. Nothing like a TODO list or roadmap lives in this repository.
 - Releases: `vX.Y.Z` tags plus the moving major tag `v1`. Changes to names, inputs or outputs also go to the page
   https://quak.party/apps/github.

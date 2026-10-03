@@ -51,7 +51,7 @@ describe("requests", () => {
   });
 
   test("text with unicode, quotes, line breaks and shell characters arrives unchanged", async () => {
-    const text = `Build "#42" failed: $(whoami) \`id\` ; rm -rf / && echo 'ok' | cat\nÄnderung von Jörg 🚀`;
+    const text = `Build "#42" failed: $(whoami) \`id\` ; rm -rf / && echo 'ok' | cat\nCrème brûlée in Zürich 🚀`;
     const { calls, log } = await runAction({ ...base, type: "text", text });
     expect(calls[0]!.json!.text).toBe(text);
     expect(log).not.toContain("whoami");
