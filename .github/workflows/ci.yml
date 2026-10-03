@@ -1,0 +1,79 @@
+# Checks every push and pull request: formatting, types, tests, the committed bundle, and the action itself on the
+# three runner systems. Never a real request to Quak.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .tool-versions
+      - run: bun install --frozen-lockfile
+      - run: bun run format:check
+      - run: bun run lint
+      - run: bun test
+      - run: bun run build
+      - name: dist/index.js matches the source (run bun run build and commit)
+        run: git diff --exit-code dist
+
+  # The committed action as a workflow uses it: action.yml, node24 and the bundle. Every step stops before a request.
+  action:
+    name: action (${{ matrix.os }})
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@v7
+      # by default a failed announcement leaves the step green
+      - id: default
+        uses: ./
+        with:
+          api-key: qk_key_ci_not_a_real_key
+          type: file
+          file: does/not/exist.mp3
+      # with fail-on-error it fails
+      - id: missing-file
+        uses: ./
+        continue-on-error: true
+        with:
+          api-key: qk_key_ci_not_a_real_key
+          type: file
+          file: does/not/exist.mp3
+          fail-on-error: true
+      # without a key too, except in a pull request from a fork: no secrets there, so it passes with a warning
+      - id: no-key
+        uses: ./
+        continue-on-error: true
+        with:
+          api-key: ""
+          type: sound
+          sound: alarm
+          fail-on-error: true
+      - name: Check the outcomes
+        shell: bash
+        run: |
+          test "${{ steps.default.outcome }}" = success
+          test "${{ steps.missing-file.outcome }}" = failure
+          if [ "${{ github.event.pull_request.head.repo.fork }}" = true ]; then
+            test "${{ steps.no-key.outcome }}" = success
+          else
+            test "${{ steps.no-key.outcome }}" = failure
+          fi

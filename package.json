@@ -1,0 +1,23 @@
+{
+  "name": "quak-github-action",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GitHub Action for the Quak API: announcements, sounds and clips on Sonos speakers from a workflow",
+  "license": "MIT",
+  "author": "Mike Lieser",
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/main.ts --target=node --format=esm --outfile=dist/index.js",
+    "lint": "tsc --noEmit",
+    "format": "prettier --write --ignore-unknown .",
+    "format:check": "prettier --check --ignore-unknown ."
+  },
+  "dependencies": {
+    "@quak/js": "0.9.6"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "prettier": "3.9.9",
+    "typescript": "7.0.2"
+  }
+}

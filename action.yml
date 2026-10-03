@@ -1,0 +1,81 @@
+name: Quak
+description: Announce deployments, failed builds and releases on Sonos speakers with text-to-speech, sounds and clips.
+author: Quak
+branding:
+  icon: volume-2
+  color: yellow
+
+inputs:
+  api-key:
+    description: Quak API key with scope play, from a secret (secrets.QUAK_API_KEY).
+    required: true
+  type:
+    description: "What to play: text, sound, clip, file or url. Set the input of the same name too."
+    required: true
+  text:
+    description: "type: text. The text to speak, 1-1000 characters."
+  sound:
+    description: "type: sound. Slug of a built-in sound."
+  clip:
+    description: "type: clip. Slug of one of your clips."
+  file:
+    description: "type: file. Path of an audio file on the runner, relative to the workspace. Max. 10 MB and 180 s."
+  url:
+    description: "type: url. http(s) address of an audio file."
+  to:
+    description: "Speaker slugs (rooms, groups, locations or all), separated by commas. Default: the workspace's default speakers."
+  volume:
+    description: Volume 1-100. Default from the workspace.
+  volumes:
+    description: 'Volume per speaker as a JSON object, like {"office": 30, "kitchen": 60}.'
+  voice:
+    description: "type: text. Voice slug. Default from the workspace."
+  language:
+    description: "type: text. Language for multi-language voices, like en or de-DE."
+  intro:
+    description: "Sound slug, clip:<slug> or none, played before. Sounds and clips need process: true."
+  outro:
+    description: "Sound slug, clip:<slug> or none, played after. Sounds and clips need process: true."
+  gap:
+    description: "Pause between intro, content and outro in ms: 0-1000 in steps of 100."
+  effect:
+    description: "Voice effect, like robot or megaphone. Sounds and clips need process: true."
+  effect-intensity:
+    description: "Strength of the effect: off, weak, medium or strong."
+  ambience:
+    description: "Ambience behind the voice, like stadium or office. Sounds and clips need process: true."
+  ambience-intensity:
+    description: "Level of the ambience: off, weak, medium or strong."
+  quiet-hours:
+    description: 'When nothing plays, like "22-7" or none. Default from the workspace.'
+  priority:
+    description: "true: interrupts everything, also high-priority clips of other apps. Use sparingly."
+  preview:
+    description: "true: only makes the audio (output audio-url), nothing plays. Still costs credits."
+  process:
+    description: "Sounds and clips: true adds intro, outro, effect and ambience (default false). URLs: false lets Sonos fetch the file directly (default true)."
+  skip-cache:
+    description: "true: makes the audio again instead of using the cache."
+  start-in:
+    description: "Seconds until the play starts, 0-60, decimals allowed."
+  fail-on-error:
+    description: "true: a failed announcement fails the step. By default the run stays green and the error shows as an annotation."
+    default: "false"
+
+outputs:
+  play-id:
+    description: ID of the play.
+  status:
+    description: "Status of the play when Quak answered: PENDING, ACTIVE, DONE, SCHEDULED, SKIPPED etc."
+  skip-reason:
+    description: "QUIET_HOURS or BUSY when status is SKIPPED, else empty."
+  audio-url:
+    description: URL of the audio, for example with preview. Empty when there is none.
+  credits:
+    description: Credits the play cost.
+  starts-at:
+    description: When a play with start-in starts (ISO 8601), else empty.
+
+runs:
+  using: node24
+  main: dist/index.js
