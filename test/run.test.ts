@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import pkg from "../package.json" with { type: "json" };
 import { KEY, json, play, runAction, workspace } from "./helpers.js";
 
 // fail-on-error: true, so the exit code shows every failure; the default is tested on its own below.
@@ -16,7 +17,9 @@ describe("requests", () => {
     expect(call!.request.method).toBe("POST");
     expect(call!.url.href).toBe("https://api.test/v1/play/text");
     expect(call!.request.headers.get("authorization")).toBe(`Bearer ${KEY}`);
-    expect(call!.request.headers.get("x-quak-client")).toMatch(/^github-action\/1\.0\.0( \(.+\))?$/);
+    expect(call!.request.headers.get("x-quak-client")).toMatch(
+      new RegExp(`^github-action/${pkg.version}( \\(.+\\))?$`),
+    );
     expect(call!.request.headers.has("x-quak-workspace")).toBe(false);
     expect(call!.json).toEqual({ text: "Deployed.", to: ["office", "kitchen"] });
   });
