@@ -150,8 +150,8 @@ in the log.
 ## Failures, forks and skipped plays
 
 An announcement never breaks your run. When it fails, the error shows up as an annotation on the run's summary page
-and in the log, and the step stays green. Want a red step instead, for example to notice an expired key right away?
-Set `fail-on-error: true`:
+and in the log, and the step stays green. Want a red step instead, to notice right away when something's off, like a deleted key, a wrong input or Quak not
+answering? Set `fail-on-error: true`:
 
 ```yaml
 - uses: quakparty/quak-github-action@v1
