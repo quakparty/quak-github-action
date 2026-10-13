@@ -9,7 +9,10 @@ The full guide with recipes is on [quak.party/apps/github](https://quak.party/ap
 
 1. In the [Quak web app](https://quak.party), switch to the workspace whose speakers should play and make a key under
    **Settings → API keys**. A key belongs to one workspace, the access `play` is enough.
-2. Add it to your repository under **Settings → Secrets and variables → Actions** as `QUAK_API_KEY`.
+2. Add it as the secret `QUAK_API_KEY`. Best as an organization secret, under your organization's **Settings →
+   Secrets and variables → Actions**, for all repositories or the ones you pick: every repository uses the same key
+   and you change it in one place. Without an organization, or for a single repository, the same under the
+   repository's **Settings**. A repository secret with the same name wins over the organization's.
 3. Add a step where it should be heard:
 
 ```yaml
