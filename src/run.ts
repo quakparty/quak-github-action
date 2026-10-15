@@ -203,7 +203,7 @@ function report(play: Play, inputs: Inputs, fileName: string | undefined, left: 
   runner.setOutput("status", play.status);
   runner.setOutput("skip-reason", play.skipReason ?? "");
   runner.setOutput("audio-url", play.audioUrl ?? "");
-  runner.setOutput("credits", typeof play.credits === "number" ? String(play.credits) : "");
+  runner.setOutput("credits", typeof play.creditsUsed === "number" ? String(play.creditsUsed) : "");
   runner.setOutput("starts-at", play.startsAt ?? "");
   runner.debug(`play ${play.id}: status ${play.status}, from cache ${play.fromCache}`);
 
@@ -212,7 +212,7 @@ function report(play: Play, inputs: Inputs, fileName: string | undefined, left: 
   const speakers = players.map((player) => player.name || player.slug).filter(Boolean);
   const on = speakers.length > 0 ? ` on ${list(speakers)}` : "";
   const to = speakers.length > 0 ? ` to ${list(speakers)}` : "";
-  const cost = describeCredits(play.credits);
+  const cost = describeCredits(play.creditsUsed);
   // The balance stays out of the log: logs of public repositories are public. Debug logging needs write access.
   if (left !== null) {
     runner.debug(`credits left: ${left}`);
@@ -288,10 +288,10 @@ const HINTS: Record<string, string> = {
   ERROR_MISSING_API_KEY: "Check the secret QUAK_API_KEY.",
   ERROR_INSUFFICIENT_SCOPE: "The key needs the scope play.",
   ERROR_SONOS_RECONNECT_REQUIRED: "Reconnect Sonos in Quak.",
-  ERROR_TOO_MANY_REQUESTS: "Too many plays in a short time, try again later.",
+  ERROR_RATE_LIMITED: "Too many plays in a short time, try again later.",
 };
 
-const CREDIT_ERRORS = ["ERROR_INSUFFICIENT_CREDITS", "ERROR_NOT_ENOUGH_CREDITS"];
+const CREDIT_ERRORS = ["ERROR_INSUFFICIENT_CREDITS"];
 
 export function describeError(error: unknown, timeoutMs = TIMEOUT_MS): string {
   if (error instanceof UnexpectedAnswer) {

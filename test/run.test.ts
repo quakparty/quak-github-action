@@ -160,7 +160,7 @@ describe("answers", () => {
 
   test("202 SCHEDULED is a success with starts-at", async () => {
     const { code, lines, outputs } = await runAction({ ...base, type: "sound", sound: "alarm", "start-in": "30" }, () =>
-      json({ data: play({ status: "SCHEDULED", startsAt: "2026-10-03T10:00:30.000Z", credits: 0 }) }, 202),
+      json({ data: play({ status: "SCHEDULED", startsAt: "2026-10-03T10:00:30.000Z", creditsUsed: 0 }) }, 202),
     );
     expect(code).toBe(0);
     expect(lines).toContain('Quak: sound "alarm" scheduled for 2026-10-03 10:00:30 UTC to Office (0 credits).');
@@ -170,7 +170,7 @@ describe("answers", () => {
 
   test("SKIPPED is a success with a notice, not an error", async () => {
     const quiet = await runAction({ ...base, type: "sound", sound: "alarm" }, () =>
-      json({ data: play({ status: "SKIPPED", skipReason: "QUIET_HOURS", credits: 0, audioUrl: null }) }),
+      json({ data: play({ status: "SKIPPED", skipReason: "QUIET_HOURS", creditsUsed: 0, audioUrl: null }) }),
     );
     expect(quiet.code).toBe(0);
     expect(quiet.log).toContain("::notice title=Quak::Nothing played: it is quiet hours.");
@@ -188,7 +188,7 @@ describe("answers", () => {
 
   test("preview: says that nothing played", async () => {
     const { code, log, outputs } = await runAction({ ...base, type: "text", text: "Hi", preview: "true" }, () =>
-      json({ data: play({ preview: true, players: [], credits: 1 }) }),
+      json({ data: play({ preview: true, players: [], creditsUsed: 1 }) }),
     );
     expect(code).toBe(0);
     expect(log).toContain("Quak: preview of text (2 characters) made, nothing played on the speakers (1 credit).");
@@ -268,11 +268,11 @@ describe("errors", () => {
   test("out of credits: never the balance, also when the API's message names it", async () => {
     const result = await runAction(
       { ...base, type: "sound", sound: "alarm" },
-      apiError(402, "ERROR_NOT_ENOUGH_CREDITS", "needs 2 credits, 1 left", { details: { balance: 1 } }),
+      apiError(402, "ERROR_INSUFFICIENT_CREDITS", "needs 2 credits, 1 left", { details: { balance: 1 } }),
     );
     expect(result.code).toBe(1);
     expect(result.log).toContain(
-      "::error title=Quak::The workspace is out of credits. [HTTP 402, ERROR_NOT_ENOUGH_CREDITS] Request ID: req_123.",
+      "::error title=Quak::The workspace is out of credits. [HTTP 402, ERROR_INSUFFICIENT_CREDITS] Request ID: req_123.",
     );
     expect(result.log).not.toContain("1 left");
   });

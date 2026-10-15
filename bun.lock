@@ -5,7 +5,7 @@
     "": {
       "name": "quak-github-action",
       "dependencies": {
-        "@quak/js": "0.9.6",
+        "@quak/js": "0.9.16",
       },
       "devDependencies": {
         "@types/bun": "1.4.2",
@@ -15,7 +15,7 @@
     },
   },
   "packages": {
-    "@quak/js": ["@quak/js@0.9.6", "", { "dependencies": { "openapi-fetch": "0.17.0" } }, "sha512-FKK0Unmvhf19I9BT0qkveNna6gQPZkGtLibP3vhjhEU3Ls3PpiXMi0iNEOVGf/tw3TZnl+rWYp5hTvLAqGTE1Q=="],
+    "@quak/js": ["@quak/js@0.9.16", "", { "dependencies": { "openapi-fetch": "0.17.0" } }, "sha512-9bvickmYg3NzvXEyp4CCWc6zfE5UE41k0BZVXmDeK8IbWUKOQxULwa4OSStGPh1BPsYHBvMGaSdg3QdGq22c2Q=="],
 
     "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 

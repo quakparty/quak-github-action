@@ -443,7 +443,7 @@ function removeTrailingSlash(url) {
 }
 
 // node_modules/@quak/js/dist/version.js
-var VERSION = "0.9.6";
+var VERSION = "0.9.16";
 
 // node_modules/@quak/js/dist/client-header.js
 var OS = { darwin: "macos", win32: "windows", linux: "linux", android: "android" };
@@ -472,6 +472,7 @@ class QuakError extends Error {
   field;
   details;
   requestId;
+  retryAfter;
   response;
   constructor(init) {
     super(init.message, init.cause === undefined ? undefined : { cause: init.cause });
@@ -480,6 +481,7 @@ class QuakError extends Error {
     this.field = init.field;
     this.details = init.details;
     this.requestId = init.requestId;
+    this.retryAfter = init.retryAfter;
     this.response = init.response;
   }
   static fromResponse(response, body) {
@@ -491,6 +493,7 @@ class QuakError extends Error {
       field: error?.field,
       details: error?.details,
       requestId: error?.requestId ?? response.headers.get("x-request-id") ?? undefined,
+      retryAfter: parseRetryAfter(response.headers.get("retry-after")),
       response
     });
   }
@@ -498,6 +501,14 @@ class QuakError extends Error {
     const message = cause instanceof Error ? cause.message : String(cause);
     return new QuakError({ status: 0, code: "ERROR_NETWORK", message: `network error: ${message}`, cause });
   }
+}
+function parseRetryAfter(value) {
+  if (!value)
+    return;
+  if (/^\d+$/.test(value.trim()))
+    return Number(value.trim());
+  const date = Date.parse(value);
+  return Number.isNaN(date) ? undefined : Math.max(0, Math.ceil((date - Date.now()) / 1000));
 }
 function isErrorBody(body) {
   if (typeof body !== "object" || body === null || !("error" in body)) {
@@ -519,8 +530,150 @@ async function unwrap(request) {
   return result.data;
 }
 
+// node_modules/@quak/js/dist/talk-live.js
+function startTalkLive(url, apiKey, options) {
+  const Socket = options.WebSocket ?? globalThis.WebSocket;
+  if (!Socket) {
+    throw new QuakError({
+      status: 0,
+      code: "ERROR_NETWORK",
+      message: "talkLive() needs a WebSocket: Node 22 or newer, Bun, Deno or a browser, or pass one as `WebSocket`"
+    });
+  }
+  if (!apiKey) {
+    throw new QuakError({
+      status: 0,
+      code: "ERROR_MISSING_API_KEY",
+      message: "talkLive() needs an apiKey (a key or a play token)"
+    });
+  }
+  const { workspace, source, format, onReady, onUpdated, onWarning, onSkipped, onDone, onError, onClose, WebSocket: _, ...params } = options;
+  const socket = new Socket(url);
+  socket.binaryType = "arraybuffer";
+  let state = "connecting";
+  const pending = [];
+  let finished = false;
+  function send(frame) {
+    if (state === "closed")
+      return;
+    if (socket.readyState === 1)
+      socket.send(frame);
+    else
+      pending.push(frame);
+  }
+  function fail(error) {
+    if (state !== "live")
+      finished = true;
+    onError?.(error);
+  }
+  let sourceStopped;
+  function stopSource() {
+    sourceStopped ??= source ? source.stop() : Promise.resolve();
+    return sourceStopped;
+  }
+  socket.onopen = () => {
+    socket.send(JSON.stringify({
+      type: "start",
+      apiKey,
+      ...workspace ? { workspace } : {},
+      ...params,
+      ...source ? { format: source.format } : format ? { format } : {}
+    }));
+    for (const frame of pending.splice(0))
+      socket.send(frame);
+  };
+  socket.onmessage = (event) => {
+    if (typeof event.data !== "string")
+      return;
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    switch (message.type) {
+      case "ready": {
+        state = "live";
+        source?.start(send);
+        const { type: _, ...ready } = message;
+        onReady?.(ready);
+        break;
+      }
+      case "updated": {
+        const { type: _, ...updated } = message;
+        onUpdated?.(updated);
+        break;
+      }
+      case "warning": {
+        const { type: _, ...warning } = message;
+        onWarning?.(warning);
+        break;
+      }
+      case "skipped":
+        finished = true;
+        stopSource();
+        onSkipped?.({ play: message.play, creditsUsed: message.creditsUsed });
+        break;
+      case "done": {
+        finished = true;
+        const { type: _, ...done } = message;
+        onDone?.(done);
+        break;
+      }
+      case "error":
+        fail(new QuakError({
+          status: 0,
+          code: message.code,
+          message: message.message,
+          field: message.field,
+          requestId: message.requestId
+        }));
+        break;
+    }
+  };
+  socket.onclose = (event) => {
+    const dropped = !finished;
+    state = "closed";
+    stopSource();
+    if (dropped) {
+      onError?.(new QuakError({ status: 0, code: "ERROR_NETWORK", message: `talk live: connection closed (${event.code})` }));
+    }
+    onClose?.({ code: event.code, reason: event.reason });
+  };
+  return {
+    get state() {
+      return state;
+    },
+    send,
+    update(changes) {
+      if (changes.muted !== undefined)
+        source?.setMuted?.(changes.muted);
+      if (socket.readyState === 1)
+        socket.send(JSON.stringify({ type: "update", ...changes }));
+    },
+    async end() {
+      if (state === "ending" || state === "closed")
+        return;
+      state = "ending";
+      await stopSource();
+      if (socket.readyState === 1) {
+        socket.send(JSON.stringify({ type: "end" }));
+      } else {
+        finished = true;
+        socket.close();
+      }
+    },
+    close() {
+      finished = true;
+      state = "closed";
+      stopSource();
+      socket.close();
+    }
+  };
+}
+
 // node_modules/@quak/js/dist/watch.js
-var FINAL_CODES = new Set([4001, 4401, 4403]);
+var FINAL_CODES = new Set([4001, 4401]);
 var FIRST_RETRY_MS = 1000;
 var MAX_RETRY_MS = 30000;
 var SILENCE_MS = 60000;
@@ -548,7 +701,7 @@ function watchPlays(url, apiKey, options) {
     const current = new Socket(url);
     socket = current;
     current.onopen = () => {
-      current.send(JSON.stringify({ type: "auth", apiKey }));
+      current.send(JSON.stringify({ type: "auth", apiKey, ...options.workspace ? { workspace: options.workspace } : {} }));
       listen();
     };
     current.onmessage = (event) => {
@@ -614,9 +767,11 @@ class Quak {
   effects;
   baseUrl;
   apiKey;
+  workspaceHeader;
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.apiKey = options.apiKey;
+    this.workspaceHeader = Object.entries(options.headers ?? {}).find(([name]) => name.toLowerCase() === "x-quak-workspace")?.[1];
     const headers = {
       ...options.headers,
       "X-Quak-Client": clientHeader(undefined, options.client)
@@ -649,11 +804,11 @@ class Quak {
     };
     this.plays = {
       list: (query) => unwrap(api.GET("/v1/plays", { params: { query } })),
-      get: (uuid, query) => unwrap(api.GET("/v1/plays/{uuid}", { params: { path: { uuid }, query } })),
-      last: (query) => unwrap(api.GET("/v1/plays/{uuid}", { params: { path: { uuid: "last" }, query } })),
-      stop: (uuid) => unwrap(api.POST("/v1/plays/{uuid}/stop", { params: { path: { uuid } } })),
-      replay: (uuid, params = {}) => unwrap(api.POST("/v1/plays/{uuid}/replay", { params: { path: { uuid } }, body: params })),
-      save: (uuid, params = {}) => unwrap(api.POST("/v1/plays/{uuid}/save", { params: { path: { uuid } }, body: params }))
+      get: (id, query) => unwrap(api.GET("/v1/plays/{id}", { params: { path: { id }, query } })),
+      last: (query) => unwrap(api.GET("/v1/plays/{id}", { params: { path: { id: "last" }, query } })),
+      stop: (id) => unwrap(api.POST("/v1/plays/{id}/stop", { params: { path: { id } } })),
+      replay: (id, params = {}) => unwrap(api.POST("/v1/plays/{id}/replay", { params: { path: { id } }, body: params })),
+      save: (id, params = {}) => unwrap(api.POST("/v1/plays/{id}/save", { params: { path: { id } }, body: params }))
     };
     this.keys = {
       current: () => unwrap(api.GET("/v1/keys/current"))
@@ -688,8 +843,13 @@ class Quak {
     if (!this.apiKey) {
       throw new QuakError({ status: 0, code: "ERROR_MISSING_API_KEY", message: "watch() needs an apiKey" });
     }
-    const url = `${this.baseUrl.replace(/^http/, "ws")}/v1/plays/watch`;
-    return watchPlays(url, this.apiKey, options);
+    const query = options.keys ? `?keys=${options.keys}` : "";
+    const url = `${this.baseUrl.replace(/^http/, "ws")}/v1/plays/watch${query}`;
+    return watchPlays(url, this.apiKey, { ...options, workspace: options.workspace ?? this.workspaceHeader });
+  }
+  talkLive(options) {
+    const url = `${this.baseUrl.replace(/^http/, "ws")}/v1/play/talk/live`;
+    return startTalkLive(url, this.apiKey, { ...options, workspace: options.workspace ?? this.workspaceHeader });
   }
 }
 function toFormData(params) {
@@ -944,7 +1104,7 @@ function parseVolumes(value) {
 // package.json
 var package_default = {
   name: "quak-github-action",
-  version: "1.0.1",
+  version: "1.0.2",
   private: true,
   description: "GitHub Action for the Quak API: announcements, sounds and clips on Sonos speakers from a workflow",
   license: "MIT",
@@ -957,7 +1117,7 @@ var package_default = {
     "format:check": "prettier --check --ignore-unknown ."
   },
   dependencies: {
-    "@quak/js": "0.9.6"
+    "@quak/js": "0.9.16"
   },
   devDependencies: {
     "@types/bun": "1.4.2",
@@ -1103,7 +1263,7 @@ function report(play, inputs, fileName, left, runner) {
   runner.setOutput("status", play.status);
   runner.setOutput("skip-reason", play.skipReason ?? "");
   runner.setOutput("audio-url", play.audioUrl ?? "");
-  runner.setOutput("credits", typeof play.credits === "number" ? String(play.credits) : "");
+  runner.setOutput("credits", typeof play.creditsUsed === "number" ? String(play.creditsUsed) : "");
   runner.setOutput("starts-at", play.startsAt ?? "");
   runner.debug(`play ${play.id}: status ${play.status}, from cache ${play.fromCache}`);
   const what = describeContent(inputs, fileName);
@@ -1111,7 +1271,7 @@ function report(play, inputs, fileName, left, runner) {
   const speakers = players.map((player) => player.name || player.slug).filter(Boolean);
   const on = speakers.length > 0 ? ` on ${list(speakers)}` : "";
   const to = speakers.length > 0 ? ` to ${list(speakers)}` : "";
-  const cost = describeCredits(play.credits);
+  const cost = describeCredits(play.creditsUsed);
   if (left !== null) {
     runner.debug(`credits left: ${left}`);
   }
@@ -1164,9 +1324,9 @@ var HINTS = {
   ERROR_MISSING_API_KEY: "Check the secret QUAK_API_KEY.",
   ERROR_INSUFFICIENT_SCOPE: "The key needs the scope play.",
   ERROR_SONOS_RECONNECT_REQUIRED: "Reconnect Sonos in Quak.",
-  ERROR_TOO_MANY_REQUESTS: "Too many plays in a short time, try again later."
+  ERROR_RATE_LIMITED: "Too many plays in a short time, try again later."
 };
-var CREDIT_ERRORS = ["ERROR_INSUFFICIENT_CREDITS", "ERROR_NOT_ENOUGH_CREDITS"];
+var CREDIT_ERRORS = ["ERROR_INSUFFICIENT_CREDITS"];
 function describeError(error, timeoutMs = TIMEOUT_MS) {
   if (error instanceof UnexpectedAnswer) {
     return "Quak sent an answer the action does not understand. The play may have gone out anyway.";
