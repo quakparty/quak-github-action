@@ -13,7 +13,7 @@
     "format:check": "prettier --check --ignore-unknown ."
   },
   "dependencies": {
-    "@quak/js": "0.9.16"
+    "@quak/js": "0.9.18"
   },
   "devDependencies": {
     "@types/bun": "1.4.2",

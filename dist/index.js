@@ -443,7 +443,7 @@ function removeTrailingSlash(url) {
 }
 
 // node_modules/@quak/js/dist/version.js
-var VERSION = "0.9.16";
+var VERSION = "0.9.18";
 
 // node_modules/@quak/js/dist/client-header.js
 var OS = { darwin: "macos", win32: "windows", linux: "linux", android: "android" };
@@ -530,6 +530,128 @@ async function unwrap(request) {
   return result.data;
 }
 
+// node_modules/@quak/js/dist/idempotency.js
+var RETRIES = 3;
+var MAX_WAIT_S = 10;
+async function idempotent(call, key) {
+  for (let attempt = 0;; attempt++) {
+    let error;
+    try {
+      const { data, error: body, response } = await call({ "Idempotency-Key": key });
+      if (response.ok) {
+        return { ...data, replayed: response.headers.get("idempotent-replayed") === "true" };
+      }
+      error = QuakError.fromResponse(response, body);
+    } catch (cause) {
+      error = cause instanceof QuakError ? cause : QuakError.network(cause);
+    }
+    const retry = error.code === "ERROR_NETWORK" || error.status === 503 || error.code === "ERROR_IDEMPOTENCY_IN_PROGRESS";
+    if (!retry || attempt >= RETRIES) {
+      throw error;
+    }
+    await sleep(Math.min(error.retryAfter ?? 2 ** attempt, MAX_WAIT_S));
+  }
+}
+function newIdempotencyKey() {
+  const crypto = globalThis.crypto;
+  if (crypto?.randomUUID) {
+    return crypto.randomUUID();
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = bytes[6] & 15 | 64;
+  bytes[8] = bytes[8] & 63 | 128;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+function sleep(seconds) {
+  return new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+}
+
+// node_modules/@quak/js/dist/watch.js
+var FINAL_CODES = new Set([4001, 4401]);
+var FIRST_RETRY_MS = 1000;
+var MAX_RETRY_MS = 30000;
+var SILENCE_MS = 60000;
+function authData(apiKey, workspace) {
+  return {
+    ...apiKey.startsWith("qk_ptk_") ? { token: apiKey } : { apiKey },
+    ...workspace ? { workspace } : {}
+  };
+}
+function watchPlays(url, apiKey, options) {
+  const Found = options.WebSocket ?? globalThis.WebSocket;
+  if (!Found) {
+    throw new QuakError({
+      status: 0,
+      code: "ERROR_NETWORK",
+      message: "watch() needs a WebSocket: Node 22 or newer, Bun, Deno or a browser, or pass one as `WebSocket`"
+    });
+  }
+  let socket;
+  let connected = false;
+  let closed = false;
+  let retryMs = FIRST_RETRY_MS;
+  let retry;
+  let silence;
+  function listen() {
+    clearTimeout(silence);
+    silence = setTimeout(() => socket?.close(), SILENCE_MS);
+  }
+  const Socket = Found;
+  function connect() {
+    const current = new Socket(url);
+    socket = current;
+    current.onopen = () => {
+      current.send(JSON.stringify({ type: "auth", data: authData(apiKey, options.workspace) }));
+      listen();
+    };
+    current.onmessage = (event) => {
+      listen();
+      let message;
+      try {
+        message = JSON.parse(String(event.data));
+      } catch {
+        return;
+      }
+      if (message.type === "ready") {
+        connected = true;
+        retryMs = FIRST_RETRY_MS;
+        options.onReady?.();
+      } else if (message.type === "play") {
+        options.onPlay(message.data);
+      } else if (message.type === "error") {
+        const { code, message: text, requestId } = message.error;
+        options.onError?.(new QuakError({ status: 0, code, message: text, requestId }));
+      }
+    };
+    current.onclose = (event) => {
+      if (socket !== current) {
+        return;
+      }
+      clearTimeout(silence);
+      connected = false;
+      const reconnecting = !closed && options.reconnect !== false && !FINAL_CODES.has(event.code);
+      options.onClose?.({ code: event.code, reason: event.reason, reconnecting });
+      if (reconnecting) {
+        retry = setTimeout(connect, retryMs);
+        retryMs = Math.min(retryMs * 2, MAX_RETRY_MS);
+      }
+    };
+  }
+  connect();
+  return {
+    get connected() {
+      return connected;
+    },
+    close() {
+      closed = true;
+      clearTimeout(retry);
+      clearTimeout(silence);
+      socket?.close();
+    }
+  };
+}
+
 // node_modules/@quak/js/dist/talk-live.js
 function startTalkLive(url, apiKey, options) {
   const Socket = options.WebSocket ?? globalThis.WebSocket;
@@ -574,10 +696,11 @@ function startTalkLive(url, apiKey, options) {
   socket.onopen = () => {
     socket.send(JSON.stringify({
       type: "start",
-      apiKey,
-      ...workspace ? { workspace } : {},
-      ...params,
-      ...source ? { format: source.format } : format ? { format } : {}
+      data: {
+        ...authData(apiKey, workspace),
+        ...params,
+        ...source ? { format: source.format } : format ? { format } : {}
+      }
     }));
     for (const frame of pending.splice(0))
       socket.send(frame);
@@ -595,38 +718,31 @@ function startTalkLive(url, apiKey, options) {
       case "ready": {
         state = "live";
         source?.start(send);
-        const { type: _, ...ready } = message;
-        onReady?.(ready);
+        onReady?.(message.data);
         break;
       }
-      case "updated": {
-        const { type: _, ...updated } = message;
-        onUpdated?.(updated);
+      case "updated":
+        onUpdated?.(message.data);
         break;
-      }
-      case "warning": {
-        const { type: _, ...warning } = message;
-        onWarning?.(warning);
+      case "warning":
+        onWarning?.(message.data);
         break;
-      }
       case "skipped":
         finished = true;
         stopSource();
-        onSkipped?.({ play: message.play, creditsUsed: message.creditsUsed });
+        onSkipped?.(message.data);
         break;
-      case "done": {
+      case "done":
         finished = true;
-        const { type: _, ...done } = message;
-        onDone?.(done);
+        onDone?.(message.data);
         break;
-      }
       case "error":
         fail(new QuakError({
           status: 0,
-          code: message.code,
-          message: message.message,
-          field: message.field,
-          requestId: message.requestId
+          code: message.error.code,
+          message: message.error.message,
+          field: message.error.field,
+          requestId: message.error.requestId
         }));
         break;
     }
@@ -649,7 +765,7 @@ function startTalkLive(url, apiKey, options) {
       if (changes.muted !== undefined)
         source?.setMuted?.(changes.muted);
       if (socket.readyState === 1)
-        socket.send(JSON.stringify({ type: "update", ...changes }));
+        socket.send(JSON.stringify({ type: "update", data: changes }));
     },
     async end() {
       if (state === "ending" || state === "closed")
@@ -672,84 +788,6 @@ function startTalkLive(url, apiKey, options) {
   };
 }
 
-// node_modules/@quak/js/dist/watch.js
-var FINAL_CODES = new Set([4001, 4401]);
-var FIRST_RETRY_MS = 1000;
-var MAX_RETRY_MS = 30000;
-var SILENCE_MS = 60000;
-function watchPlays(url, apiKey, options) {
-  const Found = options.WebSocket ?? globalThis.WebSocket;
-  if (!Found) {
-    throw new QuakError({
-      status: 0,
-      code: "ERROR_NETWORK",
-      message: "watch() needs a WebSocket: Node 22 or newer, Bun, Deno or a browser, or pass one as `WebSocket`"
-    });
-  }
-  let socket;
-  let connected = false;
-  let closed = false;
-  let retryMs = FIRST_RETRY_MS;
-  let retry;
-  let silence;
-  function listen() {
-    clearTimeout(silence);
-    silence = setTimeout(() => socket?.close(), SILENCE_MS);
-  }
-  const Socket = Found;
-  function connect() {
-    const current = new Socket(url);
-    socket = current;
-    current.onopen = () => {
-      current.send(JSON.stringify({ type: "auth", apiKey, ...options.workspace ? { workspace: options.workspace } : {} }));
-      listen();
-    };
-    current.onmessage = (event) => {
-      listen();
-      let message;
-      try {
-        message = JSON.parse(String(event.data));
-      } catch {
-        return;
-      }
-      if (message.type === "ready") {
-        connected = true;
-        retryMs = FIRST_RETRY_MS;
-        options.onReady?.();
-      } else if (message.type === "play") {
-        options.onPlay(message.data);
-      } else if (message.type === "error") {
-        options.onError?.(new QuakError({ status: 0, code: message.code, message: `watch: ${message.code}` }));
-      }
-    };
-    current.onclose = (event) => {
-      if (socket !== current) {
-        return;
-      }
-      clearTimeout(silence);
-      connected = false;
-      const reconnecting = !closed && options.reconnect !== false && !FINAL_CODES.has(event.code);
-      options.onClose?.({ code: event.code, reason: event.reason, reconnecting });
-      if (reconnecting) {
-        retry = setTimeout(connect, retryMs);
-        retryMs = Math.min(retryMs * 2, MAX_RETRY_MS);
-      }
-    };
-  }
-  connect();
-  return {
-    get connected() {
-      return connected;
-    },
-    close() {
-      closed = true;
-      clearTimeout(retry);
-      clearTimeout(silence);
-      socket?.close();
-    }
-  };
-}
-
 // node_modules/@quak/js/dist/client.js
 var DEFAULT_BASE_URL = "https://api.quak.party";
 
@@ -768,9 +806,11 @@ class Quak {
   baseUrl;
   apiKey;
   workspaceHeader;
+  idempotency;
   constructor(options = {}) {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.apiKey = options.apiKey;
+    this.idempotency = options.idempotency === true;
     this.workspaceHeader = Object.entries(options.headers ?? {}).find(([name]) => name.toLowerCase() === "x-quak-workspace")?.[1];
     const headers = {
       ...options.headers,
@@ -794,21 +834,25 @@ class Quak {
       }
     });
     const api = this.api;
+    const send = (options, call) => {
+      const key = options?.idempotencyKey ?? (this.idempotency ? newIdempotencyKey() : undefined);
+      return key ? idempotent(call, key) : unwrap(call({}));
+    };
     this.play = {
-      text: (params) => unwrap(api.POST("/v1/play/text", { body: params })),
-      talk: (params) => unwrap(api.POST("/v1/play/talk", { body: {}, bodySerializer: () => toFormData(params) })),
-      sound: (params) => unwrap(api.POST("/v1/play/sound", { body: params })),
-      clip: (params) => unwrap(api.POST("/v1/play/clip", { body: params })),
-      file: (params) => unwrap(api.POST("/v1/play/file", { body: {}, bodySerializer: () => toFormData(params) })),
-      url: (params) => unwrap(api.POST("/v1/play/url", { body: params }))
+      text: (params, options) => send(options, (headers) => api.POST("/v1/play/text", { body: params, headers })),
+      talk: (params, options) => send(options, (headers) => api.POST("/v1/play/talk", { body: {}, bodySerializer: () => toFormData(params), headers })),
+      sound: (params, options) => send(options, (headers) => api.POST("/v1/play/sound", { body: params, headers })),
+      clip: (params, options) => send(options, (headers) => api.POST("/v1/play/clip", { body: params, headers })),
+      file: (params, options) => send(options, (headers) => api.POST("/v1/play/file", { body: {}, bodySerializer: () => toFormData(params), headers })),
+      url: (params, options) => send(options, (headers) => api.POST("/v1/play/url", { body: params, headers }))
     };
     this.plays = {
       list: (query) => unwrap(api.GET("/v1/plays", { params: { query } })),
       get: (id, query) => unwrap(api.GET("/v1/plays/{id}", { params: { path: { id }, query } })),
       last: (query) => unwrap(api.GET("/v1/plays/{id}", { params: { path: { id: "last" }, query } })),
       stop: (id) => unwrap(api.POST("/v1/plays/{id}/stop", { params: { path: { id } } })),
-      replay: (id, params = {}) => unwrap(api.POST("/v1/plays/{id}/replay", { params: { path: { id } }, body: params })),
-      save: (id, params = {}) => unwrap(api.POST("/v1/plays/{id}/save", { params: { path: { id } }, body: params }))
+      replay: (id, params = {}, options) => send(options, (headers) => api.POST("/v1/plays/{id}/replay", { params: { path: { id } }, body: params, headers })),
+      save: (id, params = {}, options) => send(options, (headers) => api.POST("/v1/plays/{id}/save", { params: { path: { id } }, body: params, headers }))
     };
     this.keys = {
       current: () => unwrap(api.GET("/v1/keys/current"))
@@ -1117,7 +1161,7 @@ var package_default = {
     "format:check": "prettier --check --ignore-unknown ."
   },
   dependencies: {
-    "@quak/js": "0.9.16"
+    "@quak/js": "0.9.18"
   },
   devDependencies: {
     "@types/bun": "1.4.2",
